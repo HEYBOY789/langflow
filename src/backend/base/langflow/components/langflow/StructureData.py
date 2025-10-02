@@ -122,12 +122,29 @@ class StructureData(Component):
                     "default": "",
                     "edit_mode": EditMode.INLINE,
                 },
+                # {
+                #     "name": "multiple",
+                #     "display_name": "Multiple",
+                #     "type": FormatterType.boolean,
+                #     "description": "Indicate if the field can have multiple values (e.g., a list of strings).",
+                #     "default": False,
+                #     "edit_mode": EditMode.INLINE,
+                # },
+                # {
+                #     "name": "required",
+                #     "display_name": "Required",
+                #     "type": FormatterType.boolean,
+                #     "description": "Indicate if the field is required in the model.",
+                #     "default": True,
+                #     "edit_mode": EditMode.INLINE,
+                # }
                 {
                     "name": "multiple",
                     "display_name": "Multiple",
                     "type": FormatterType.boolean,
                     "description": "Indicate if the field can have multiple values (e.g., a list of strings).",
-                    "default": False,
+                    "options": ["True", "False"],
+                    "default": "False",
                     "edit_mode": EditMode.INLINE,
                 },
                 {
@@ -135,18 +152,27 @@ class StructureData(Component):
                     "display_name": "Required",
                     "type": FormatterType.boolean,
                     "description": "Indicate if the field is required in the model.",
-                    "default": True,
+                    "options": ["True", "False"],
+                    "default": "True",
                     "edit_mode": EditMode.INLINE,
                 }
             ],
             value=[
+                # {
+                #     "name": "field",
+                #     "description": "description of field",
+                #     "type": "str",
+                #     "using_reducer": "None",
+                #     "multiple": False,
+                #     "required": True,
+                # },
                 {
                     "name": "field",
                     "description": "description of field",
                     "type": "str",
                     "using_reducer": "None",
-                    "multiple": False,
-                    "required": True,
+                    "multiple": "False",
+                    "required": "True",
                 },
             ],
         )
@@ -368,8 +394,10 @@ class StructureData(Component):
             custom_type = f.get("custom_type", "")
             using_reducer = f.get("using_reducer", "None")
             custom_reducer = f.get("custom_reducer_function_name", "")
-            multiple = f.get("multiple", False)
-            required = f.get("required", True)
+            # multiple = f.get("multiple", False)
+            # required = f.get("required", True)
+            multiple = f.get("multiple", "False")
+            required = f.get("required", "True")
 
             # Enhanced error handling for custom types
             if type_str == "custom":
@@ -387,10 +415,17 @@ class StructureData(Component):
                 base_type = type_map.get(type_str, str)
 
             # Add List
-            annotated_type = list[base_type] if multiple else base_type
+            # annotated_type = list[base_type] if multiple else base_type
+            annotated_type = list[base_type] if multiple == "True" else base_type
 
             # Add Optional
-            if required:
+            # if required:
+            #     # Keep annotated_type as is
+            #     field_kwargs = {"description": description}
+            # else:
+            #     annotated_type = Optional[annotated_type]
+            #     field_kwargs = {"description": description, "default": None}
+            if required == "True":
                 # Keep annotated_type as is
                 field_kwargs = {"description": description}
             else:
