@@ -1,0 +1,88 @@
+
+
+2. Map-reduce, send api, command ✅
+3. Loops - Xong Loops => Mai bat dau tiep voi recursion limit ✅
+
+
+4. Condinotal edge lien ket de tao ra nhieu dieu kien => Doi thanh custom code co the cho nhieu dieu kien mot luc luon ✅
+
+5. Comand => tao 4 GraphNode khac tuong ung cho command rieng biet. de khi lien ket thi graphnode thuong se phan biet duoc va khong add them edge. idea la se su dung ket qua de so sanh. ket qua co the tu agent hoac tinh toan tu custom code. vi du result = agent.invoke. 
+Co hai truong hop la pydantic va 1 result
+neu la pydantic, se co field nhap field nam muon so sanh cua pydantic, build in va custom condition, match text nhu conditional edge la doi voi truong hop don gian. doi voi truong hop phuc tap se su dung custom code.
+doi voi route, ta se co field nhap goto va update_value deu la dict. yeu cau su dung chinh xac key giua ca 2 dict. ta chi can return ve key, sau do co the tham chieu den 2 dict nay de lay goto va update value de tao command
+
+GraphNode
+- add them "GraphNodeForAgentWithCommand",
+                    "GraphNodeForCrewAIAgentWithCommand",
+                    "GraphNodeForCrewAICrewWithCommand",
+                    "GraphNodeForFunctionWithCommand" vo previous node
+- Add them field return_command_addon de ket noi addon
+- add them _update_class_identity
+- add them self._update_class_identity() o _pre_run_setup
+- them if self.return_command_addon:
+            command_type_hint = self.return_command_addon.type_hint
+        else:
+            command_type_hint = None
+- them def node_function(state: self.input_model) -> Literal[self.output_model, command_type_hint]
+- doi lai node_function
+
+da test xong built-in. da test xong custom condition. 
+
+sau do la lam cho agent, crewai
+
+xong phan agent va ca hai crewai
+
+bay gio toi return ve comand SEND va squence send
+
+test thu xe luc update value la update value bang output cua node hien tai hay input cua node tro toi
+
+da test send api voi build in va custom
+nen chinh sua send api de gui duoc nhieu gia tri hon thay vi co dinh 1 gia tri
+custom chua test va hoan thanh => Chi ne them vao phan extra input de manual type vo => da xong va them phan input voi state cua graph 
+✅
+
+
+6. Subgraph ✅
+- test lai subgraph voi memory
+
+6 gap.
+tiep tuc implement GraphNodeForAgent => lam voi json
+- Vi langflow moi update nen phai code lai agentforlanggraph va GraphNodeForAgent
+- Gom 2 phan, chinh lai agentforlanggraph return ve agent hoac structure agent va su dung model output o ben GraphNodeForAgent tuyen vao cho agent
+- Nen code cai GraphNode component va2 implement cac cai graph node khac vao
+=> Da update xong graphnodeforagent va AgentForLangGraph theo update cua langflow -> Co them tinh nang tu extract va separate extract
+=> da sua lai cho phu hop voi SEND API. Khong can su dung Thread Lock nua
+
+7. memory
+- long memory (manual put, get cho cac graph node va xai langmem)
+=> Van de loi o history co the do thang lang graph. Nen xem qua them van de implement store thi bi => Xai qua flow moi thi khong thay bi khi xai component history nhung tren terminal van hien loi khi print debug history => Tam bo vi no van work => khong bi gi nua. bravo. thay cai agent compo moi la het bi
+=> xong phan dynamic name space cho manual => Xem cach implement update thong tin danh co trong cung mot grah, lam them phuong thuc update ben canh store, get https://github.com/langchain-ai/memory-template
+tiep tuc ung dung get memory thay doi promt cho agent => xong
+ung dung manual put, get cho cac graph node component con lai agent, crewai agent, crewai crew, function => da xong
+ung dung langmem auto put, get cho cac graph node. Buoc dau da xa dinh duoc su khac biet cua memory_manager va memory store manager (khac o cho luu store) => da xong duoc implement jina embeddings va su dung embeding trong store => tiep tuc ung dung langmem => test create_memory_store_manager => @entrypoint o tren cac node work => luu manager(them param store=store) trong config roi lay ra xai cho tung node work => xai entrypoint(store)(node) trong graph.addnode cung work => Can hoi tren github hoac discord xem co khac gi nhau khi su dung cac phuong phap khac nhau khong => tao mot ham store_mem rieng voi decorator entrypoint roi goi ra xai trong cac node khong work => da fix duoc loi schema, la vi thieu docstring => suy nghi cach add_node entrypoint => may cai test sai het entrypoint va task no thuoc ve Functional API, khac hoan toan stategraph. Doc them ve cai nay de biet cach implement voi stategraph. Buoc dau tien thay co the them entypoint ngay tai function invoke stategrpah luon chu khong can phai lam cho tung node https://langchain-ai.github.io/langgraph/how-tos/use-functional-api/#calling-graphs => Dua memmory manager vo xai bbinh thuong duoc luon, dev ra section rieng cho functional api? => Da xong store mem bang manual va langmem, gio toi get mem, luu y chinh lai para cho manual get vi structure theo kieu kind, content cho dong bo voi prebuilt langmem => Xong
+
+8. implement lai python function working voi async => Xong
+
+9. memory_tool cho agent va crewai agent => da xong memory_manager_tool va memory_search_tool.
+
+
+1. Batch run nhieu graph invoke, su dung chung voi runtime config https://langchain-ai.github.io/langgraph/how-tos/graph-api/#add-runtime-configuration
+Hien gio chi co 1 graph invoke, nhung truoc tine phai kiem cach chay invoke dc cho list => da chay duoc cho list => Dan xong component runtime config, bay gio implem cho graph runner, graph node cac loai. O graphnode thi co the su dung syntax {langflow_runtime_context.field} de truy cap toi runtime context. Con o graohnodefunction this pass truc tiep context vao roi goi runtime.context.field la duoc, nho phai doi lai thanh . thay vi [] de acces field vi da thay typedict bang pydantic model => Da setup xong context schema chore createstate, graph node cac loai, graph run, bay gio chi can implement runtime o cac run_agent (tuong tu) o cac graph node. Khong can chuyen thanh pydantic luon vi no tu la pydantic vi luc pass pydantic model vo o runtime context => Da xong
+
+10. implement lai format prompt work duoc nhieu kieu du lieu hon, xem xet lay prompt cua crewai crew (agent, task) va sua prompt truc tiep thay vi xai cai co san => da xong
+
+11. chinh lai format_prompt co the chap nhan {var.field} cho class va dict luon , ket hop  Xem xet thay the nesteddictinput cho inputdata cua graphrun va cac compo tuong tu. Xet duyet tren string. vi du ["@is_class Person(nam=john)", "@is_class Person(nam=tom)"] => Quyet dinh de nguyen he thong inputdata bang chu => xong
+
+xem xet gop cac function bi phan manh o nhieu cho thanh ulti, 4 graphnode implement tu 1 graphnode chinh
+
+9. Functional API => Tham khao de biet cach xai Functionnal API voi graph de implement them langmem
+
+8. Defer Background memory
+
+
+9. Human in the loop
+
+
+
+
+
