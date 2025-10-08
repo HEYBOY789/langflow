@@ -2,12 +2,13 @@ from langchain_core.runnables import RunnableConfig  # noqa: N999
 from langgraph.store.base import BaseStore
 from lfx.custom.custom_component.component import Component
 from lfx.io import DropdownInput, IntInput, MessageTextInput, MultilineInput, NestedDictInput, Output
+from src.backend.base.langflow.components.langflow.utils.memory_func import config_namespace
 
 
 class GetLongMemAddonForGraphNode(Component):
     display_name = "Get Long Memory Addon"
     description = "Retrieves long-term memory for a user. Postgres will be used as database, make sure to set up the Postgres database first."  # noqa: E501
-    documentation: str = "https://docs.langflow.org/components-custom-components"
+    documentation: str = "https://langchain-ai.github.io/langgraph/concepts/memory/#long-term-memory"
     icon = "LangChain"
     name = "GetLongMemAddonForGraphNode"
 
@@ -96,23 +97,9 @@ class GetLongMemAddonForGraphNode(Component):
         return build_config
 
 
-    def config_namespace(self, config: RunnableConfig | None) -> str | None:
-        ns_ = []
-        for ns in self.name_space:
-            if ns.startswith("{") and ns.endswith("}"):
-                key = ns.replace("{", "").replace("}", "").strip()
-                if config and "configurable" in config and key in config["configurable"]:
-                    ns_.append(str(config["configurable"].get(key)))
-                else:
-                    msg = f"Not found {{{key}}} in config. Please check your config in GraphRunner again."
-                    raise ValueError(msg)
-            else:
-                ns_.append(ns)
-        return tuple(ns_)
-
     def build_output(self) -> "GetLongMemAddonForGraphNode":
         async def get_memory(store: BaseStore, config: RunnableConfig | None=None):
-            ns_ = self.config_namespace(config)
+            ns_ = config_namespace(self.name_space, config)
             if self.operation == "Get":
                 return await store.aget(ns_, self.mem_id)
             if self.operation == "Search":

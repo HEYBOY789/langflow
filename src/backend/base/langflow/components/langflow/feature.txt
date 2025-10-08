@@ -73,7 +73,7 @@ Hien gio chi co 1 graph invoke, nhung truoc tine phai kiem cach chay invoke dc c
 
 11. chinh lai format_prompt co the chap nhan {var.field} cho class va dict luon , ket hop  Xem xet thay the nesteddictinput cho inputdata cua graphrun va cac compo tuong tu. Xet duyet tren string. vi du ["@is_class Person(nam=john)", "@is_class Person(nam=tom)"] => Quyet dinh de nguyen he thong inputdata bang chu => xong
 
-xem xet gop cac function bi phan manh o nhieu cho thanh ulti, 4 graphnode implement tu 1 graphnode chinh
+xem xet gop cac function bi phan manh o nhieu cho thanh ulti, 4 graphnode implement tu 1 graphnode chinh => khong lam duoc. langflow khong nhan
 
 9. Functional API => Tham khao de biet cach xai Functionnal API voi graph de implement them langmem
 

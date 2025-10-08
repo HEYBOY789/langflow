@@ -24,8 +24,8 @@ class MemorySearchToolComponent(LCToolComponent):
         ),
         MultilineInput(
             name="instructions",
-            display_name="Custom Instruction To Extract Memories",
-            info="Custom instruction to extract memories from conversations. If not provided, a default instruction will be used.",  # noqa: E501
+            display_name="Custom Instruction To Retrieve Memories",
+            info="Custom instruction to retrieve memories from conversations. If not provided, a default instruction will be used.",  # noqa: E501
             value="Use this tool to retrieve relevant memories about American's history when asked."
         ),
     ]

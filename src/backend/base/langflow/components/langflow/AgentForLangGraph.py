@@ -1,5 +1,4 @@
-import re  # noqa: N999
-from typing import Any
+from typing import Any  # noqa: N999
 
 from langchain_core.tools import StructuredTool, Tool
 from lfx.base.agents.agent import LCToolsAgentComponent
@@ -22,6 +21,7 @@ from lfx.log.logger import logger
 from lfx.schema.dotdict import dotdict
 from lfx.schema.message import Message
 from pydantic import ValidationError
+from src.backend.base.langflow.components.langflow.utils.agent_result_func import clarify_result
 
 
 def set_advanced_true(component_input):
@@ -213,7 +213,7 @@ class AgentComponentForLangGraph(ToolCallingAgentComponent):
     async def build_structured_output_base(self, content: str | Any):
         """Build structured output with optional BaseModel validation."""
         # Trying to parse content as JSON
-        json_data = self._clarify_result(content)
+        json_data = clarify_result(content)
         try:
             if not self.output_model:
                 msg = "No output model found. Please connect output model to your GraphNode"
@@ -465,60 +465,3 @@ class AgentComponentForLangGraph(ToolCallingAgentComponent):
         if hasattr(self, "tools_metadata"):
             tools = component_toolkit(component=self, metadata=self.tools_metadata).update_tools_metadata(tools=tools)
         return tools
-
-
-
-
-    ############## JSON Cleaning and Parsing ##############
-    def _clarify_result(self, result):
-        """Clarify the result from the agent or crew response."""
-        # If pydantic model is in result, get it and convert it to dict
-        if hasattr(result, "pydantic"):
-            response_data = result.pydantic
-            return response_data.model_dump()
-
-        # Result is normal string
-        return (
-            self._parse_json_from_text(str(result.raw))
-            if hasattr(result, "raw")
-            else self._parse_json_from_text(str(result))
-        )
-
-    def _parse_json_from_text(self, text: str) -> dict[str, Any]:
-        """Extract and parse JSON from text that might contain additional content."""
-        try:
-            # First, try parsing the entire text as JSON
-            return self._safe_literal_eval(text, dict)
-        except ValueError:
-            # If that fails, try to extract JSON from the text
-            # Look for JSON-like structures
-            json_pattern = r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}"
-            matches = re.findall(json_pattern, text, re.DOTALL)
-
-            try:
-                for match in matches:
-                    # Clean up the JSON string
-                    cleaned_json = self._clean_json_string(match)
-                    return self._safe_literal_eval(cleaned_json, dict)
-            except ValueError:
-                # If no valid JSON found, raise an error
-                msg = "Could not extract valid dictionary from response."
-                raise ValueError(msg) from None
-
-    def _clean_json_string(self, json_str: str) -> str:
-        """Clean up common JSON formatting issues."""
-        # Remove control characters and fix common issues
-        json_str = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", json_str)
-        # Fix trailing commas
-        json_str = re.sub(r",(\s*[}\]])", r"\1", json_str)
-        return json_str.strip()
-
-    def _safe_literal_eval(self, value: str, expected_type=None):
-        """Safely evaluate literal with type checking."""
-        import ast
-        result = ast.literal_eval(value)
-        if expected_type and not isinstance(result, expected_type):
-            msg = f"Expected {expected_type.__name__}, got {type(result).__name__}"
-            raise ValueError(msg)
-        return result
-    ##########################################

@@ -4,12 +4,13 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.store.base import BaseStore
 from lfx.custom.custom_component.component import Component
 from lfx.io import DropdownInput, HandleInput, MessageTextInput, MultilineInput, NestedDictInput, Output
+from src.backend.base.langflow.components.langflow.utils.memory_func import config_namespace
 
 
 class StoreLongMemAddonForGraphNode(Component):
     display_name = "Store Long Memory Addon"
     description = "Stores long-term memory for a user. Postgres will be used as database, make sure to set up the Postgres database first."  # noqa: E501
-    documentation: str = "https://docs.langflow.org/components-custom-components"
+    documentation: str = "https://langchain-ai.github.io/langgraph/concepts/memory/#long-term-memory"
     icon = "memory-stick"
     name = "StoreLongMemAddonForGraphNode"
 
@@ -106,21 +107,6 @@ class StoreLongMemAddonForGraphNode(Component):
                 build_config["mem_mess_template"]["required"] = True
         return build_config
 
-    def config_namespace(self, config: RunnableConfig | None) -> str | None:
-        ns_ = []
-        for ns in self.name_space:
-            if ns.startswith("{") and ns.endswith("}"):
-                key = ns.replace("{", "").replace("}", "").strip()
-                if config and "configurable" in config and key in config["configurable"]:
-                    ns_.append(str(config["configurable"].get(key)))
-                else:
-                    msg = f"Not found {{{key}}} in config. Please check your config in GraphRunner again."
-                    raise ValueError(msg)
-            else:
-                ns_.append(ns)
-        return tuple(ns_)
-
-
     def form_message_for_manager(self, memories_dict: dict):
         # Extract variable placeholders (now won't match escaped braces)
         placeholders = re.findall(r"{([a-zA-Z_][a-zA-Z0-9_]*)}", self.mem_mess_template)
@@ -150,7 +136,7 @@ class StoreLongMemAddonForGraphNode(Component):
         async def store_memory(store: BaseStore, memories_dict: dict, config: RunnableConfig | None=None):
             if self.store_options == "Manual":
                 # Config Namespace
-                ns_ = self.config_namespace(config)
+                ns_ = config_namespace(self.name_space, config)
                 # Unpack extra_mem if provided
                 if self.extra_mem:
                     memories_dict.update(self.extra_mem)

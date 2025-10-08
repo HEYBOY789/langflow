@@ -1,10 +1,18 @@
-import re  # noqa: N999
-from typing import Any, Literal
+from typing import Any, Literal  # noqa: N999
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph import START
 from langgraph.store.base import BaseStore
 from lfx.base.models.chat_result import get_chat_result
+from src.backend.base.langflow.components.langflow.utils.graph_node_func import (
+    build_params_for_add_node,
+    check_if_field_is_list,
+    detect_and_register_edges,
+)
+from src.backend.base.langflow.components.langflow.utils.memory_func import extract_memory, store_memory
+from src.backend.base.langflow.components.langflow.utils.prompt_func import (
+    form_memory_str_for_prompt,
+    format_all_prompts,
+)
 from trustcall import create_extractor
 
 from langflow.custom import Component
@@ -230,222 +238,17 @@ class GraphNodeForAgent(Component):
         self.input_model = self.input_state.model_class
 
 
-    def _detect_and_register_edges(self):
-        """Detect edges based on previous_nodes connections and add them directly to builder."""
-        builder = self.graph_builder
-        if not builder:
-            msg = f"{self.node_name} | No StateGraph builder found in context."
-            raise ValueError(msg)
-
-        # Create edges from previous nodes to this node (if any)
-        if self.previous_nodes:
-            for prev_node_component in self.previous_nodes:
-                # Create a start node if previous node is from CreateStateGraphComponent
-                if prev_node_component.__class__.__name__ == "CreateStateGraphComponent":
-                    builder.add_edge(START, self.node_name)
-                    print(f"Added START edge: START -> {self.node_name}")  # noqa: T201
-                    continue
-
-                # If previous_node is conditonal edge, Send API or Node that return Command, just pass because all the"
-                # logic is handled in ConditionalEdgeForLangGraph
-                if prev_node_component.__class__.__name__ in [
-                    "ConditionalEdgeForLangGraph",
-                    "SendMapReduceForLangGraph",
-                    "GraphNodeForAgentWithCommand",
-                    "GraphNodeForCrewAIAgentWithCommand",
-                    "GraphNodeForCrewAICrewWithCommand",
-                    "GraphNodeForFunctionWithCommand",
-                    "GraphNodeAsSubGraphWithCommand"
-                ]:
-                    print(f"Skipping {prev_node_component.__class__.__name__}")  # noqa: T201
-                    continue
-
-                # Get the node name from the previous GraphNode component
-                prev_node_name = prev_node_component.node_name
-                builder.add_edge(prev_node_name, self.node_name)
-                print(f"Added edge: {prev_node_name} -> {self.node_name}")  # noqa: T201
-
-
-    def format_prompt(self, prompt_template, state) -> str:
-        """Format the prompt by replacing placeholders with actual values from the state object.
-
-        Use {{}} to escape literal braces in schema, and {} for variables.
-        """
-        # First, temporarily replace escaped braces {{}} with a placeholder
-        temp_placeholder = "___ESCAPED_BRACE___"
-        formatted_prompt = prompt_template.replace(
-            "{{", f"{temp_placeholder}OPEN").replace("}}", f"{temp_placeholder}CLOSE"
-            )
-
-        # Extract variable placeholders (now won't match escaped braces)
-        placeholders = re.findall(r"{([a-zA-Z_][a-zA-Z0-9_.]*?)}", formatted_prompt)
-        placeholders = list(set(placeholders))  # Remove duplicates
-
-        from pydantic import BaseModel
-        for placeholder in placeholders:
-            # Check if the placeholder exists as an attribute in the state object
-            if "." not in placeholder:
-                if not hasattr(state, placeholder):
-                    msg = (
-                        f"{self.node_name} | Placeholder '{{{placeholder}}}' not found in the input state of node. "
-                        f"Check your prompt template and ensure it matches the state attributes.\n"
-                        f"Available attributes: [{', '.join(state.__dict__.keys())}]"
-                    )
-                    raise ValueError(msg)
-                # Replace the placeholder with the actual value
-                value = getattr(state, placeholder)
-                formatted_prompt = formatted_prompt.replace(f"{{{placeholder}}}", str(value))
-
-            if "." in placeholder:
-                var, field = placeholder.split(".")
-                if not hasattr(state, var):
-                    msg = (
-                        f"{self.node_name} | Variable '{var}' not found in the input state of node. "
-                        f"Check your prompt template and ensure it matches the state attributes.\n"
-                        f"Available attributes: [{', '.join(state.__dict__.keys())}]"
-                    )
-                    raise ValueError(msg)
-
-
-                if isinstance(getattr(state, var), dict):
-                    if field not in getattr(state, var):
-                        msg = (
-                            f"{self.node_name} | Field '{field}' not found in the dictionary attribute '{var}'. "
-                            f"Check your prompt template and ensure it matches the state attributes.\n"
-                            f"Available fields in '{var}': [{', '.join(getattr(state, var).keys())}]"
-                        )
-                        raise ValueError(msg)
-                    # Replace the placeholder with the actual value
-                    value = getattr(state, var)[field]
-                    formatted_prompt = formatted_prompt.replace(f"{{{placeholder}}}", str(value))
-
-                if isinstance(getattr(state, var), BaseModel):
-                    if not hasattr(getattr(state, var), field):
-                        msg = (
-                            f"{self.node_name} | Field '{field}' not found in the model attribute '{var}'. "
-                            f"Check your prompt template and ensure it matches the state attributes.\n"
-                            f"Available fields in '{var}': [{', '.join(getattr(state, var).__dict__.keys())}]"
-                        )
-                        raise ValueError(msg)
-
-                    # Replace the placeholder with the actual value
-                    value = getattr(getattr(state, var), field)
-                    formatted_prompt = formatted_prompt.replace(f"{{{placeholder}}}", str(value))
-
-        # Restore escaped braces
-        return formatted_prompt.replace(f"{temp_placeholder}OPEN", "{").replace(f"{temp_placeholder}CLOSE", "}")
-
-
-
-    def form_extraction_system_prompt(self, prompt_template):
-        """Form the system prompt for structured output extraction. Use for extraction LLM when using AgentComponent."""
-        verbose_str = self.output_state.schema.get("verbose_schema_str")
-
-        # Replace {model_schema} with the actual verbose_str in system prompt (combined prompt if using pydantic)
-        return prompt_template.replace("{langflow_model_schema}", verbose_str.strip())
-
-
-    def _check_if_field_is_list(self, field_name: str) -> bool:
-        """Check if a field is a list type using the schema."""
-        schema_fields = self.output_state.schema.get("fields", [])
-
-        for field in schema_fields:
-            if field["name"] == field_name:
-                field_type_str = field["type"]
-                # Check if the type string contains "List"
-                return "List[" in field_type_str or field_type_str == "list"
-        return False
-
-
-    async def extract_memory(self, store: BaseStore | None = None, config: RunnableConfig | None=None):
-        # Format system prompt and input value with memory
-        if store and self.get_from_mem_addon:
-            for get_from_mem in self.get_from_mem_addon:
-                mem = await get_from_mem.get_mem_func(store, config=config)
-                mem_format = get_from_mem.mem_format
-                if mem:
-                    if isinstance(mem, list):
-                        for m in mem:
-                            if m not in self.memories:
-                                self.memories.append({m: mem_format})
-                    elif mem not in self.memories:
-                        self.memories.append({mem: mem_format})
-            # print(f"Retrieved memories: {self.memories}")
-
-    def form_memory_str_for_prompt(self):
-        mem_ = set()
-        # print("len of memories:", len(self.memories))
-        for mem in self.memories:
-            for m, m_format in mem.items():
-                # print("Initial memory content:", m)
-                # Extract variable placeholders (now won't match escaped braces)
-                placeholders = re.findall(r"{([a-zA-Z_][a-zA-Z0-9_]*)}", m_format)
-
-                m_val = getattr(m, "value", None)
-                if not m_val:
-                    continue
-
-                # Get content in mem_val
-                m_val_content = m_val.get("content", None)
-                # print(f"Raw memory content: {mem_val_content}")
-                if isinstance(m_val_content, dict):
-                    for placeholder in placeholders:
-                        if placeholder not in m_val_content:
-                            print(f"Missing placeholder {{{placeholder}}} in memory. Using raw content.")  # noqa: T201
-                            m_val_content = str(m_val_content)
-                            # print(f"Formatted memory content as dict: {m_val_content}")
-                            break
-                    if isinstance(m_val_content, dict):
-                        # If still dict, format using all keys
-                        m_val_content = m_format.format(**m_val_content)
-                elif isinstance(m_val_content, str):
-                    # print(f"Formatted memory content as str: {m_val_content}")
-                    m_val_content = str(m_val_content)
-
-                mem_.add(m_val_content.strip())
-        return "\n".join(mem_)
-
-    async def store_memory(self, result: dict, store: BaseStore | None = None, config: RunnableConfig | None=None):
-        if store and self.put_to_mem_addon:
-            for put_mem_addon in self.put_to_mem_addon:
-                await put_mem_addon.store_mem_func(store, result, config)
-
-    def format_runtime_prompt(self, prompt, runtime):
-        if not runtime.context:
-            return prompt
-
-        placeholders = re.findall(r"\{langflow_runtime_context\.([a-zA-Z_][a-zA-Z0-9_]*)\}", prompt)
-        placeholders = list(set(placeholders))
-        for placeholder in placeholders:
-            if placeholder in runtime.context.__dict__:
-                value = getattr(runtime.context, placeholder)
-                # Convert to string, allowing for None, False, 0, empty strings
-                prompt = prompt.replace(f"{{langflow_runtime_context.{placeholder}}}", str(value))
-            else:
-                msg = (
-                    f"Runtime context field '{placeholder}' not found in context. "
-                    f"Available fields: {list(runtime.context.__dict__.keys())}"
-                )
-                raise ValueError(msg)
-        return prompt
-
-    def format_all_prompts(self, prompt, mem_str, runtime, state):
-        formatted_prompt = self.form_extraction_system_prompt(prompt)
-        formatted_prompt = formatted_prompt.replace("{langflow_mem_data}", mem_str)
-        formatted_prompt = self.format_runtime_prompt(formatted_prompt, runtime)
-        return self.format_prompt(formatted_prompt, state)
-
     async def run_agent(self, state, _original_prompts, runtime) -> dict[str, Any]:
         # Create local copies of prompts using the original templates passed from build_graph
         original_system_prompt, original_input_template = _original_prompts
-        mem_str = self.form_memory_str_for_prompt() if self.memories else ""
+        mem_str = form_memory_str_for_prompt(self.memories) if self.memories else ""
 
         # Format prompts locally (don't modify the shared component)
-        formatted_system_prompt = self.format_all_prompts(original_system_prompt, mem_str, runtime, state)
+        formatted_system_prompt = format_all_prompts(original_system_prompt, mem_str, runtime, state, self.node_name)
         print("Debug formatted system prompt:", formatted_system_prompt)  # noqa: T201
 
         # ALWAYS use the original template, never the current agent component text\
-        formatted_input_text = self.format_all_prompts(original_input_template, mem_str, runtime, state)
+        formatted_input_text = format_all_prompts(original_input_template, mem_str, runtime, state, self.node_name)
         print("Debug formatted input text:", formatted_input_text)  # noqa: T201
 
         # Set formatted prompts to the agent
@@ -482,10 +285,11 @@ class GraphNodeForAgent(Component):
         # Rest of your processing code...
         if self.output_type == "Pydantic":
             return response
-        is_list_field = self._check_if_field_is_list(self.output_state_field)
+        is_list_field = check_if_field_is_list(self.output_state, self.output_state_field)
         if is_list_field:
             return {self.output_state_field: [response.text]}
         return {self.output_state_field: response.text}
+
 
     # Add this node to builder
     def build_graph(self) -> "GraphNodeForAgent":
@@ -526,11 +330,11 @@ class GraphNodeForAgent(Component):
             # Run the agent and get results
             try:
                 # Try to get memories
-                await self.extract_memory(store, config)
+                await extract_memory(self.get_from_mem_addon, self.memories, store, config)
                 # Get result
                 result = await self.run_agent(state, original_prompts, runtime)
                 # Store result as long memory
-                await self.store_memory(result, store, config)
+                await store_memory(self.put_to_mem_addon, result, store, config)
                 # Return Command object if command_addon is provided
                 if self.return_command_addon:
                     # Convert result to object to synchonize when using .field
@@ -545,24 +349,17 @@ class GraphNodeForAgent(Component):
                 raise ValueError(msg) from e
             return result
 
-        # Add this node to the builder FIRST
-        if self.node_caching > 0:
-            from langgraph.types import CachePolicy
-            caching_ = CachePolicy(ttl=self.node_caching)
-        else:
-            caching_ = None
 
-        # Add retry policy if provided
-        policy_ = self.retry_policy or None
-
+        params = build_params_for_add_node(self.node_caching, self.retry_policy, self.defer_node)
         builder.add_node(
-            self.node_name, node_function, cache_policy=caching_, retry_policy=policy_, defer=self.defer_node
-            )
+            self.node_name, node_function, **params
+        )
         print(f"Added node: {self.node_name}")  # noqa: T201
 
         # THEN detect and register edges (after node exists)
-        self._detect_and_register_edges()
+        detect_and_register_edges(builder, self.node_name, self.previous_nodes)
         return self
+
 
     def extract_pydantic_with_separated_llm(self, unstructured_text, extraction_system_prompt):
         if not hasattr(self.extraction_llm, "with_structured_output"):

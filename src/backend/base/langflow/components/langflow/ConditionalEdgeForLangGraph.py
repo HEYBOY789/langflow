@@ -1,7 +1,10 @@
-import re  # noqa: N999
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Sequence  # noqa: N999
 
 from langgraph.graph import END, START
+from src.backend.base.langflow.components.langflow.utils.conditional_func import (
+    detect_and_register_cond_edges,
+    evaluate_condition,
+)
 
 from langflow.custom.custom_component.component import Component
 from langflow.io import BoolInput, DictInput, DropdownInput, HandleInput, MessageTextInput, Output
@@ -190,25 +193,6 @@ class ConditionalEdgeForLangGraph(Component):
         self.input_model = self.input_state.model_class
 
 
-    def _detect_and_register_edges(self, conditional_func: Callable):
-        """Detect previous_nodes connections and add them to conditional edge."""
-        builder = self.graph_builder
-        if not builder:
-            msg = f"{self.conditional_edge_name} | No StateGraph builder found in context."
-            raise ValueError(msg)
-
-        if self.previous_node:
-            # Create conditional entry point if previous node is from CreateStateGraphComponent
-            if self.previous_node.__class__.__name__ == "CreateStateGraphComponent":
-                builder.add_conditional_edges(START, conditional_func)
-                print(f"Added conditional edge: START -> {conditional_func.__name__}")  # noqa: T201
-            else:
-                # Get the node name from the previous GraphNode component
-                prev_node_name = self.previous_node.node_name
-                builder.add_conditional_edges(prev_node_name, conditional_func)
-                print(f"Added conditional edge: {prev_node_name} -> {conditional_func.__name__}")  # noqa: T201
-
-
     def update_build_config(self, build_config, field_value, field_name = None):
         if field_name == "condition_type":
             if field_value == "Built-in":
@@ -254,152 +238,6 @@ class ConditionalEdgeForLangGraph(Component):
         return build_config
 
 
-    def evaluate_condition(self,
-                           input_text: str | dict | list,
-                           match_text: str,
-                           operator: str,
-                           *,
-                           case_sensitive: bool) -> bool:
-        print(f"Evaluating condition: {input_text} {operator} {match_text} (case_sensitive={case_sensitive})")  # noqa: T201
-
-        # Handle List operations
-        if isinstance(input_text, list):
-            if operator == "contains":
-                # Check if match_text is in the list
-                if case_sensitive:
-                    return match_text in input_text
-                return any(str(item).lower() == match_text.lower() for item in input_text)
-
-            if operator == "not contains":
-                # Check if match_text is NOT in the list
-                if case_sensitive:
-                    return match_text not in input_text
-                return not any(str(item).lower() == match_text.lower() for item in input_text)
-
-            if operator in ["less than", "less than or equal", "greater than", "greater than or equal"]:
-                # Compare list length with match_text as number
-                try:
-                    list_length = len(input_text)
-                    match_num = float(match_text)
-                    if operator == "less than":
-                        return list_length < match_num
-                    if operator == "less than or equal":
-                        return list_length <= match_num
-                    if operator == "greater than":
-                        return list_length > match_num
-                    if operator == "greater than or equal":
-                        return list_length >= match_num
-                except ValueError:
-                    return False  # Invalid number format for comparison
-
-            elif operator == "equals":
-                # Check if list length equals match_text as number
-                try:
-                    return len(input_text) == float(match_text)
-                except ValueError:
-                    return False
-
-            elif operator == "not equals":
-                # Check if list length does not equal match_text as number
-                try:
-                    return len(input_text) != float(match_text)
-                except ValueError:
-                    return False
-
-            else:
-                return False  # Unsupported operator for list
-
-        # Handle Dict operations
-        elif isinstance(input_text, dict):
-            if operator == "contains":
-                # Check if match_text is a key in the dict
-                if case_sensitive:
-                    return match_text in input_text
-                return any(str(key).lower() == match_text.lower() for key in input_text)
-
-            if operator == "not contains":
-                # Check if match_text is NOT a key in the dict
-                if case_sensitive:
-                    return match_text not in input_text
-                return not any(str(key).lower() == match_text.lower() for key in input_text)
-
-            if operator in ["less than", "less than or equal", "greater than", "greater than or equal"]:
-                # Compare dict length (number of keys) with match_text as number
-                try:
-                    dict_length = len(input_text)
-                    match_num = float(match_text)
-                    if operator == "less than":
-                        return dict_length < match_num
-                    if operator == "less than or equal":
-                        return dict_length <= match_num
-                    if operator == "greater than":
-                        return dict_length > match_num
-                    if operator == "greater than or equal":
-                        return dict_length >= match_num
-                except ValueError:
-                    return False  # Invalid number format for comparison
-
-            elif operator == "equals":
-                # Check if dict length equals match_text as number
-                try:
-                    return len(input_text) == float(match_text)
-                except ValueError:
-                    return False
-
-            elif operator == "not equals":
-                # Check if dict length does not equal match_text as number
-                try:
-                    return len(input_text) != float(match_text)
-                except ValueError:
-                    return False
-
-            else:
-                return False  # Unsupported operator for dict
-
-        # Handle String operations (existing logic)
-        else:
-            # Convert to string if it's not already
-            input_text = str(input_text)
-
-            if not case_sensitive and operator != "regex":
-                input_text = input_text.lower()
-                match_text = match_text.lower()
-
-            if operator == "equals":
-                return input_text == match_text
-            if operator == "not equals":
-                return input_text != match_text
-            if operator in ["contains", "in"]:
-                return match_text in input_text
-            if operator in ["not contains", "not in"]:
-                return match_text not in input_text
-            if operator == "starts with":
-                return input_text.startswith(match_text)
-            if operator == "ends with":
-                return input_text.endswith(match_text)
-            if operator == "regex":
-                try:
-                    return bool(re.match(match_text, input_text))
-                except re.error:
-                    return False  # Return False if the regex is invalid
-            elif operator in ["less than", "less than or equal", "greater than", "greater than or equal"]:
-                try:
-                    input_num = float(input_text)
-                    match_num = float(match_text)
-                    if operator == "less than":
-                        return input_num < match_num
-                    if operator == "less than or equal":
-                        return input_num <= match_num
-                    if operator == "greater than":
-                        return input_num > match_num
-                    if operator == "greater than or equal":
-                        return input_num >= match_num
-                except ValueError:
-                    return False  # Invalid number format for comparison
-
-            return False
-
-
     def build_type_hint(self):
         # Determine type hint based on dict_route keys
         type_hint_list = []
@@ -434,7 +272,7 @@ class ConditionalEdgeForLangGraph(Component):
         type_hint = self.build_type_hint()
         def conditional_edge(state: self.input_model) -> type_hint: # type: ignore  # noqa: PGH003
             if self.condition_type == "Built-in":
-                result = self.evaluate_condition(
+                result = evaluate_condition(
                     getattr(state, self.state_field, ""),
                     self.match_value,
                     self.operator,
@@ -454,7 +292,12 @@ class ConditionalEdgeForLangGraph(Component):
         conditional_edge.__qualname__   = self.conditional_edge_name
 
         # Register the conditional edge with the builder
-        self._detect_and_register_edges(conditional_edge)
+        detect_and_register_cond_edges(
+            self.graph_builder,
+            self.conditional_edge_name,
+            self.previous_node,
+            conditional_edge
+        )
 
         self.build_function_run = True
 

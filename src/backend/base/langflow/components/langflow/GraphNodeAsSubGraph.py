@@ -1,6 +1,9 @@
 from typing import Any  # noqa: N999
 
-from langgraph.graph import START
+from src.backend.base.langflow.components.langflow.utils.graph_node_func import (
+    build_params_for_add_node,
+    detect_and_register_edges,
+)
 
 from langflow.custom import Component
 from langflow.io import BoolInput, HandleInput, IntInput, MessageTextInput, Output
@@ -185,51 +188,11 @@ class GraphNodeAsSubGraph(Component):
         self.input_model = self.input_state.model_class
 
 
-    def _detect_and_register_edges(self):
-        """Detect edges based on previous_nodes connections and add them directly to builder."""
-        builder = self.graph_builder
-        if not builder:
-            msg = f"{self.node_name} | No StateGraph builder found in context."
-            raise ValueError(msg)
-
-        # Create edges from previous nodes to this node (if any)
-        if self.previous_nodes:
-            # If previous_node is conditonal edge,
-            # just pass because all the logic is handled in ConditionalEdgeForLangGraph
-            for prev_node_component in self.previous_nodes:
-                # Create a start node if previous node is from CreateStateGraphComponent
-                if prev_node_component.__class__.__name__ == "CreateStateGraphComponent":
-                    builder.add_edge(START, self.node_name)
-                    print(f"Added START edge: START -> {self.node_name}")  # noqa: T201
-                    continue
-
-                # If previous_node is conditonal edge, Send API or Node that return Command,
-                # just pass because all the logic is handled in ConditionalEdgeForLangGraph
-                if prev_node_component.__class__.__name__ in [
-                    "ConditionalEdgeForLangGraph",
-                    "SendMapReduceForLangGraph",
-                    "GraphNodeForAgentWithCommand",
-                    "GraphNodeForCrewAIAgentWithCommand",
-                    "GraphNodeForCrewAICrewWithCommand",
-                    "GraphNodeForFunctionWithCommand",
-                    "GraphNodeAsSubGraphWithCommand"
-                ]:
-                    print(f"Skipping {prev_node_component.__class__.__name__}")  # noqa: T201
-                    continue
-
-                # Get the node name from the previous GraphNode component
-                prev_node_name = prev_node_component.node_name
-                builder.add_edge(prev_node_name, self.node_name)
-                print(f"Added edge: {prev_node_name} -> {self.node_name}")  # noqa: T201
-
-
     def run_subgraph(self, state) -> dict[str, Any]:
         try:
-            self.sub_graph.serialize_input()
             # Pass in parent state to normalize input data
             self.sub_graph.parent_state = state
-            self.sub_graph.normalize_input_data()
-            result = self.sub_graph._graph.invoke(self.sub_graph.input_data)
+            result = self.sub_graph._execute_graph_async_subgraph()
         except (ValueError, TypeError, AttributeError, KeyError) as e:
             msg = f"{self.node_name} | Exception: {e}"
             raise ValueError(msg) from e
@@ -275,31 +238,15 @@ class GraphNodeAsSubGraph(Component):
                 raise ValueError(msg) from e
             return result
 
-        # Add this node to the builder FIRST
-        if self.node_caching > 0:
-            from langgraph.types import CachePolicy
-            caching_ = CachePolicy(ttl=self.node_caching)
-        else:
-            caching_ = None
-
-        # Add retry policy if provided
-        policy_ = self.retry_policy or None
+        params = build_params_for_add_node(self.node_caching, self.retry_policy, self.defer_node)
 
         if self.differ_state:
-            builder.add_node(
-                self.node_name, node_function, cache_policy=caching_, retry_policy=policy_, defer=self.defer_node
-                )
+            builder.add_node(self.node_name, node_function, **params)
         else:
-            builder.add_node(
-                self.node_name,
-                self.sub_graph._graph,
-                cache_policy=caching_,
-                retry_policy=policy_,
-                defer=self.defer_node
-            )
+            builder.add_node(self.node_name, self.sub_graph._graph, **params)
 
         print(f"Added node: {self.node_name}")  # noqa: T201
 
         # THEN detect and register edges (after node exists)
-        self._detect_and_register_edges()
+        detect_and_register_edges(builder, self.node_name, self.previous_nodes)
         return self

@@ -1,9 +1,15 @@
-import re  # noqa: N999
-from typing import Literal
+from typing import Literal  # noqa: N999
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph import START
 from langgraph.store.base import BaseStore
+from src.backend.base.langflow.components.langflow.utils.graph_node_func import (
+    build_params_for_add_node,
+    detect_and_register_edges,
+)
+from src.backend.base.langflow.components.langflow.utils.memory_func import extract_memory, store_memory
+from src.backend.base.langflow.components.langflow.utils.prompt_func import (
+    form_memory_str_for_prompt,
+)
 
 from langflow.custom import Component
 from langflow.io import BoolInput, HandleInput, IntInput, MessageTextInput, Output
@@ -217,97 +223,6 @@ class GraphNodeForFunction(Component):
         self.input_model = self.input_state.model_class
 
 
-    def _detect_and_register_edges(self):
-        """Detect edges based on previous_nodes connections and add them directly to builder."""
-        builder = self.graph_builder
-        if not builder:
-            msg = f"{self.node_name} | No StateGraph builder found in context."
-            raise ValueError(msg)
-
-        # Create edges from previous nodes to this node (if any)
-        if self.previous_nodes:
-            # If previous_node is conditonal edge,
-            # just pass because all the logic is handled in ConditionalEdgeForLangGraph
-            for prev_node_component in self.previous_nodes:
-                # Create a start node if previous node is from CreateStateGraphComponent
-                if prev_node_component.__class__.__name__ == "CreateStateGraphComponent":
-                    builder.add_edge(START, self.node_name)
-                    print(f"Added START edge: START -> {self.node_name}")  # noqa: T201
-                    continue
-
-                # If previous_node is conditonal edge,
-                # Send API or Node that return Command, just pass because all the logic is handled in
-                # ConditionalEdgeForLangGraph
-                if prev_node_component.__class__.__name__ in [
-                    "ConditionalEdgeForLangGraph",
-                    "SendMapReduceForLangGraph",
-                    "GraphNodeForAgentWithCommand",
-                    "GraphNodeForCrewAIAgentWithCommand",
-                    "GraphNodeForCrewAICrewWithCommand",
-                    "GraphNodeForFunctionWithCommand",
-                    "GraphNodeAsSubGraphWithCommand"
-                ]:
-                    print(f"Skipping {prev_node_component.__class__.__name__}")  # noqa: T201
-                    continue
-
-                # Get the node name from the previous GraphNode component
-                prev_node_name = prev_node_component.node_name
-                builder.add_edge(prev_node_name, self.node_name)
-                print(f"Added edge: {prev_node_name} -> {self.node_name}")  # noqa: T201
-
-    async def extract_memory(self, store: BaseStore | None = None, config: RunnableConfig | None=None):
-        # Format system prompt and input value with memory
-        if store and self.get_from_mem_addon:
-            for get_from_mem in self.get_from_mem_addon:
-                mem = await get_from_mem.get_mem_func(store, config=config)
-                mem_format = get_from_mem.mem_format
-                if mem:
-                    if isinstance(mem, list):
-                        for m in mem:
-                            if m not in self.memories:
-                                self.memories.append({m: mem_format})
-                    elif mem not in self.memories:
-                        self.memories.append({mem: mem_format})
-            # print(f"Retrieved memories: {self.memories}")
-
-    def form_memory_str_for_prompt(self):
-        mem_ = set()
-        # print("len of memories:", len(self.memories))
-        for mem in self.memories:
-            for m, m_format in mem.items():
-                # print("Initial memory content:", m)
-                # Extract variable placeholders (now won't match escaped braces)
-                placeholders = re.findall(r"{([a-zA-Z_][a-zA-Z0-9_]*)}", m_format)
-
-                m_val = getattr(m, "value", None)
-                if not m_val:
-                    continue
-
-                # Get content in mem_val
-                m_val_content = m_val.get("content", None)
-                # print(f"Raw memory content: {mem_val_content}")
-                if isinstance(m_val_content, dict):
-                    for placeholder in placeholders:
-                        if placeholder not in m_val_content:
-                            print(f"Missing placeholder {{{placeholder}}} in memory. Using raw content.")  # noqa: T201
-                            m_val_content = str(m_val_content)
-                            # print(f"Formatted memory content as dict: {m_val_content}")
-                            break
-                    if isinstance(m_val_content, dict):
-                        # If still dict, format using all keys
-                        m_val_content = m_format.format(**m_val_content)
-                elif isinstance(m_val_content, str):
-                    # print(f"Formatted memory content as str: {m_val_content}")
-                    m_val_content = str(m_val_content)
-
-                mem_.add(m_val_content.strip())
-        return "\n".join(mem_)
-
-    async def store_memory(self, result: dict, store: BaseStore | None = None, config: RunnableConfig | None=None):
-        if store and self.put_to_mem_addon:
-            for put_mem_addon in self.put_to_mem_addon:
-                await put_mem_addon.store_mem_func(store, result, config)
-
     # Add this node to builder
     def build_graph(self) -> "GraphNodeForFunction":
         # Get the shared builder from context
@@ -337,13 +252,13 @@ class GraphNodeForFunction(Component):
             # Run the function and get result
             try:
                 # Try to get memories
-                await self.extract_memory(store, config)
+                await extract_memory(self.get_from_mem_addon, self.memories, store, config)
                 # Get result
                 verbose_str = self.output_state.schema.get("verbose_schema_str")
-                mem_str = self.form_memory_str_for_prompt() if self.memories else ""
+                mem_str = form_memory_str_for_prompt(self.memories) if self.memories else ""
                 result = await self.function_(state, self.output_state.get_field_types(), mem_str, verbose_str, runtime)
                 # Store result as long memory
-                await self.store_memory(result, store, config)
+                await store_memory(self.put_to_mem_addon, result, store, config)
                 # Return Command object if command_addon is provided
                 if self.return_command_addon:
                     # Convert result to object to synchonize when using .field
@@ -357,23 +272,15 @@ class GraphNodeForFunction(Component):
                 raise ValueError(error_msg) from e
             return result
 
-        # Add this node to the builder FIRST
-        if self.node_caching > 0:
-            from langgraph.types import CachePolicy
-            caching_ = CachePolicy(ttl=self.node_caching)
-        else:
-            caching_ = None
-
-        # Add retry policy if provided
-        policy_ = self.retry_policy or None
+        params = build_params_for_add_node(self.node_caching, self.retry_policy, self.defer_node)
 
         builder.add_node(
-            self.node_name, node_function, cache_policy=caching_, retry_policy=policy_, defer=self.defer_node
-            )
+            self.node_name, node_function, **params
+        )
         print(f"Added node: {self.node_name}")  # noqa: T201
 
         # THEN detect and register edges (after node exists)
-        self._detect_and_register_edges()
+        detect_and_register_edges(builder=builder, node_name=self.node_name, previous_nodes=self.previous_nodes)
         return self
 
 
