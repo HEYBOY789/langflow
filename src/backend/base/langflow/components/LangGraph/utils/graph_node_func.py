@@ -57,7 +57,7 @@ def detect_and_register_edges(builder, node_name, previous_nodes):
             prev_node_name = prev_node_component.node_name
             builder.add_edge(prev_node_name, node_name)
             if node_name == END:
-                print(f"Added END edge: {node_name} -> END")  # noqa: T201
+                print(f"Added END edge: {prev_node_name} -> END")  # noqa: T201
             else:
                 print(f"Added edge: {prev_node_name} -> {node_name}")  # noqa: T201
     return builder
