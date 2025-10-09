@@ -1,5 +1,4 @@
-import re
-
+import re  # noqa: INP001
 
 
 def format_extraction_system_prompt(output_state, prompt_template):

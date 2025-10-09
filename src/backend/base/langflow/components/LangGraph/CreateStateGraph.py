@@ -6,7 +6,7 @@ from langflow.io import HandleInput, Output
 
 
 class CreateStateGraphComponent(Component):
-    display_name = "State Graph For LangGraph"
+    display_name = "State Graph"
     description = "Create State Graph for LangGraph"
     documentation: str = "https://langchain-ai.github.io/langgraph/concepts/low_level/#state"
     icon = "LangChain"

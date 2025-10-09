@@ -1,6 +1,7 @@
 import json  # noqa: INP001
 import re
-from src.backend.base.langflow.components.langflow.utils.agent_result_func import safe_literal_eval  # noqa: INP001
+
+from src.backend.base.langflow.components.LangGraph.utils.agent_result_func import safe_literal_eval
 
 
 def normalize_input_data(input_data=None, dict_or_object=None, parent_state=None):

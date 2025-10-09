@@ -2,8 +2,8 @@ from typing import Any  # noqa: N999
 
 from langgraph.types import Send
 from pydantic import Field, create_model
-from src.backend.base.langflow.components.langflow.utils.conditional_func import detect_and_register_cond_edges
-from src.backend.base.langflow.components.langflow.utils.input_convert_func import normalize_input_data
+from src.backend.base.langflow.components.LangGraph.utils.conditional_func import detect_and_register_cond_edges
+from src.backend.base.langflow.components.LangGraph.utils.input_convert_func import normalize_input_data
 
 from langflow.custom.custom_component.component import Component
 from langflow.io import DictInput, HandleInput, MessageTextInput, Output
@@ -260,7 +260,7 @@ class SendMapReduceForLangGraph(Component):
     def build_api(self) -> "SendMapReduceForLangGraph":
         send_api_edge = self.create_send_for_command().get(self.send_api_name)
         # Register the conditional edge with the builder
-        detect_and_register_cond_edges(
+        self.graph_builder = detect_and_register_cond_edges(
             self.graph_builder,
             self.send_api_name,
             self.previous_node,

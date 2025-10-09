@@ -36,6 +36,7 @@ async def extract_memory(
                 elif mem not in memories_input:
                     memories_input.append({mem: mem_format})
         # print(f"Retrieved memories: {self.memories}")
+    return memories_input
 
 
 async def store_memory(

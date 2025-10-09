@@ -175,3 +175,5 @@ def detect_and_register_cond_edges(
     else:
         msg = f"{cond_edge_name} | No previous node found, please connect one..."
         raise ValueError(msg)
+
+    return builder

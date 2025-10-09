@@ -21,7 +21,7 @@ from lfx.log.logger import logger
 from lfx.schema.dotdict import dotdict
 from lfx.schema.message import Message
 from pydantic import ValidationError
-from src.backend.base.langflow.components.langflow.utils.agent_result_func import clarify_result
+from src.backend.base.langflow.components.LangGraph.utils.agent_result_func import clarify_result
 
 
 def set_advanced_true(component_input):

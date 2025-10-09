@@ -1,9 +1,10 @@
 from collections.abc import Callable, Sequence  # noqa: N999
+from typing import Literal
 
 from langgraph.graph import END
 from langgraph.types import Command, Send
-from src.backend.base.langflow.components.langflow.utils.conditional_func import evaluate_condition
-from src.backend.base.langflow.components.langflow.utils.input_convert_func import normalize_input_data
+from src.backend.base.langflow.components.LangGraph.utils.conditional_func import evaluate_condition
+from src.backend.base.langflow.components.LangGraph.utils.input_convert_func import normalize_input_data
 
 from langflow.custom.custom_component.component import Component
 from langflow.io import BoolInput, DictInput, DropdownInput, HandleInput, MessageTextInput, NestedDictInput, Output
@@ -503,8 +504,13 @@ class CommandAddonForLangGraph(Component):
             type_hint = Command[Sequence[str]]
         elif len(type_hint_list) == 1 and type_hint_list[0] == "Sequence[Send]":
             type_hint = Command[Sequence[Send]]
+        elif len(type_hint_list) == 1:
+            type_hint = Command[type_hint_list[0]]
         else:
-            type_hint = eval(f"Command[Literal[{', '.join(repr(v) for v in type_hint_list)}]]")  # noqa: S307
+            # Create type hint with literal values directly without using eval
+            from typing import _LiteralGenericAlias
+            literal_type = _LiteralGenericAlias(Literal, tuple(type_hint_list))
+            type_hint = Command[literal_type]
         print(f"Type hint for conditional edge: {type_hint}")  # noqa: T201
         return type_hint
 
@@ -518,14 +524,14 @@ class CommandAddonForLangGraph(Component):
                 compared_value = getattr(result, self.state_field) if hasattr(result, self.state_field) else result[self.state_field]  # noqa: E501
                 evaluated_result = evaluate_condition(compared_value, self.match_value, self.operator, case_sensitive=self.case_sensitive)  # noqa: E501
                 if evaluated_result:
-                    update_value = normalize_input_data(result, self.true_route_update_value)
+                    update_value = normalize_input_data(self.true_route_update_value, result)
                     if self.goto_type_true == "GraphNode":
                         goto = self.true_nodes_list
                     elif self.goto_type_true == "Send API":
-                        # Gseet the first and only send API from true_route_send
+                        # Get the first and only send API from true_route_send
                         goto = self.true_route_send[next(iter(self.true_route_send))](state, update_value)
                 else:
-                    update_value = normalize_input_data(result, self.false_route_update_value)
+                    update_value = normalize_input_data(self.false_route_update_value, result)
                     if self.goto_type_false == "GraphNode":
                         goto = self.false_nodes_list
                     elif self.goto_type_false == "Send API":
@@ -535,7 +541,8 @@ class CommandAddonForLangGraph(Component):
                 evaluated_result = self.custom_condition(result)
                 goto_ = self.goto_custom.get(evaluated_result)
                 update_value = self.update_value.get(evaluated_result)
-                update_value = normalize_input_data(result, update_value)
+                update_value = normalize_input_data(update_value, result)
+                print(f"Update value after processing: {update_value}")  # noqa: T201
                 if isinstance(goto_, Callable):  # noqa: SIM108
                     # If goto is a callalbe which, pass in state to create Send API
                     goto = goto_(state, update_value)

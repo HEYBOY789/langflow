@@ -1,4 +1,7 @@
-from langgraph.graph import START  # noqa: INP001
+from langgraph.graph import (  # noqa: INP001
+    END,
+    START,
+)
 
 
 def build_params_for_add_node(node_caching_input, retry_policy_input, defer_node_input):
@@ -53,7 +56,11 @@ def detect_and_register_edges(builder, node_name, previous_nodes):
             # Get the node name from the previous GraphNode component
             prev_node_name = prev_node_component.node_name
             builder.add_edge(prev_node_name, node_name)
-            print(f"Added edge: {prev_node_name} -> {node_name}")  # noqa: T201
+            if node_name == END:
+                print(f"Added END edge: {node_name} -> END")  # noqa: T201
+            else:
+                print(f"Added edge: {prev_node_name} -> {node_name}")  # noqa: T201
+    return builder
 
 
 def check_if_field_is_list(state, field_name: str) -> bool:

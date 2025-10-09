@@ -4,7 +4,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.store.base import BaseStore
 from lfx.custom.custom_component.component import Component
 from lfx.io import DropdownInput, HandleInput, MessageTextInput, MultilineInput, NestedDictInput, Output
-from src.backend.base.langflow.components.langflow.utils.memory_func import config_namespace
+from src.backend.base.langflow.components.LangGraph.utils.memory_func import config_namespace
 
 
 class StoreLongMemAddonForGraphNode(Component):

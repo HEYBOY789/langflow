@@ -3,13 +3,13 @@ from typing import Any, Literal  # noqa: N999
 from langchain_core.runnables import RunnableConfig
 from langgraph.store.base import BaseStore
 from lfx.base.models.chat_result import get_chat_result
-from src.backend.base.langflow.components.langflow.utils.graph_node_func import (
+from src.backend.base.langflow.components.LangGraph.utils.graph_node_func import (
     build_params_for_add_node,
     check_if_field_is_list,
     detect_and_register_edges,
 )
-from src.backend.base.langflow.components.langflow.utils.memory_func import extract_memory, store_memory
-from src.backend.base.langflow.components.langflow.utils.prompt_func import (
+from src.backend.base.langflow.components.LangGraph.utils.memory_func import extract_memory, store_memory
+from src.backend.base.langflow.components.LangGraph.utils.prompt_func import (
     form_memory_str_for_prompt,
     format_all_prompts,
 )
@@ -330,7 +330,7 @@ class GraphNodeForAgent(Component):
             # Run the agent and get results
             try:
                 # Try to get memories
-                await extract_memory(self.get_from_mem_addon, self.memories, store, config)
+                self.memories = await extract_memory(self.get_from_mem_addon, self.memories, store, config)
                 # Get result
                 result = await self.run_agent(state, original_prompts, runtime)
                 # Store result as long memory
@@ -357,7 +357,7 @@ class GraphNodeForAgent(Component):
         print(f"Added node: {self.node_name}")  # noqa: T201
 
         # THEN detect and register edges (after node exists)
-        detect_and_register_edges(builder, self.node_name, self.previous_nodes)
+        self.graph_builder = detect_and_register_edges(builder, self.node_name, self.previous_nodes)
         return self
 
 

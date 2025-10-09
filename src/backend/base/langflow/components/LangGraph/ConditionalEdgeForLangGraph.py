@@ -1,7 +1,7 @@
 from collections.abc import Callable, Sequence  # noqa: N999
 
 from langgraph.graph import END, START
-from src.backend.base.langflow.components.langflow.utils.conditional_func import (
+from src.backend.base.langflow.components.LangGraph.utils.conditional_func import (
     detect_and_register_cond_edges,
     evaluate_condition,
 )
@@ -292,7 +292,7 @@ class ConditionalEdgeForLangGraph(Component):
         conditional_edge.__qualname__   = self.conditional_edge_name
 
         # Register the conditional edge with the builder
-        detect_and_register_cond_edges(
+        self.graph_builder = detect_and_register_cond_edges(
             self.graph_builder,
             self.conditional_edge_name,
             self.previous_node,

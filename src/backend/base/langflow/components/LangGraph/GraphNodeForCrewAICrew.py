@@ -1,26 +1,31 @@
-from typing import Literal  # noqa: N999
+import json  # noqa: N999
+from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.store.base import BaseStore
-from src.backend.base.langflow.components.langflow.utils.graph_node_func import (
+from src.backend.base.langflow.components.LangGraph.utils.agent_result_func import clarify_result
+from src.backend.base.langflow.components.LangGraph.utils.graph_node_func import (
     build_params_for_add_node,
+    check_if_field_is_list,
     detect_and_register_edges,
 )
-from src.backend.base.langflow.components.langflow.utils.memory_func import extract_memory, store_memory
-from src.backend.base.langflow.components.langflow.utils.prompt_func import (
+from src.backend.base.langflow.components.LangGraph.utils.memory_func import extract_memory, store_memory
+from src.backend.base.langflow.components.LangGraph.utils.prompt_func import (
     form_memory_str_for_prompt,
+    format_all_prompts,
 )
 
 from langflow.custom import Component
-from langflow.io import BoolInput, HandleInput, IntInput, MessageTextInput, Output
+from langflow.io import BoolInput, DropdownInput, HandleInput, IntInput, MessageTextInput, Output
+from langflow.schema.dotdict import dotdict
 
 
-class GraphNodeForFunction(Component):
-    display_name = "Graph Node For Function"
-    description = "Node for LangGraph that processes input with python functions component."
+class GraphNodeForCrewAICrew(Component):
+    display_name = "Graph Node For CrewAI Crew"
+    description = "Node for LangGraph that processes input with CrewAI crews component."
     documentation: str = "https://docs.langflow.org/components-custom-components"
     icon = "LangChain"
-    name = "LangGraphNodeFunction"
+    name = "LangGraphNodeForCrewAICrew"
 
     inputs = [
         HandleInput(
@@ -56,41 +61,14 @@ class GraphNodeForFunction(Component):
             required=True,
         ),
         HandleInput(
-            name="function_",
-            input_types=["Callable"],
-            display_name="Function",
-            info="Connect a Python function to use its logic in Langflow.\n"
-            "Langflow's Python Function component supports only a single function.\n"
-            "Always wrap your code inside an async function to ensure compatibility and make sure to return from it.\n"
-            "Use await for any async operations inside the wrapper function instead of asyncio.run.\n"
-            "Must return a dict with keys matching the output state model fields.\n"
-            "Must have (state, output_types, memories, model_schema, runtime) as parameters for the async wrapper function. Order matter.\n"  # noqa: E501
-            "* state (BaseModel): The input state of node.\n"
-            "* output_types (dict): A dict mapping output field names to their types. "
-            "Example: {'person': Person, number: int}. "
-            "Useful when you want to create instances of types in output state.\n"
-            "* memories (str): Optional memory format as a string for the node.\n"
-            "* model_schema (str): Optional model schema format as a string for the node.\n"
-            "* runtime (Runtime): Runtime Config. "
-            "Use 'runtime.context.field_name' to access value of field in runtime config. "
-            "If no runtime config, runtime.context will be None.\n"
-            "Example: \n"
-            "Input state has 'second' field\n"
-            "Output state has 'result' field\n"
-            "```code```\n"
-            "async def f_(state, output_types, memories, model_schema, runtime):\n"
-            "____async def stop_for_second(state):\n"
-            "________await asyncio.sleep(state.second)\n"
-            '________return f"Stop for {state.second} seconds"\n'
-            "____result = await stop_for_second(state)\n"
-            '____return {"result": result}\n'
-            "```code```\n"
-            "```code```\n"
-            "async def conv_schema_to_instance_for_overallstate(state, output_types, memories, model_schema, runtime):"
-            '____person = output_types["person"](**state.__dict__)\n'
-            '____return {"person": [person]}\n'
-            "```code```\n",
-            required=True,
+            name="crew",
+            display_name="CrewAI Crew",
+            info="Connect to a CrewAI Crew for task execution. When using a Crew:\n\n"
+            "• Tasks and Agent configurations serve as the prompts\n"
+            "• Use {input_name} syntax to reference input values\n"
+            "• Field names in your inputs must match the attributes in your input state model",
+            input_types=["Crew"],
+            required=True
         ),
         HandleInput(
             name="input_state",
@@ -103,8 +81,31 @@ class GraphNodeForFunction(Component):
             name="output_state",
             display_name="Output State Of Node.",
             info="Output state of the function. "
-            "If not provided, graph output state will be used by taken from the first previous node.",
+            "If not provided, graph output state will be used by taken from the first previous node. "
+            "Use syntax {langflow_model_schema} to include the model's verbose schema in Task Prompts and CrewAI Agent Prompts.",  # noqa: E501
             input_types=["ModelClassWrapper"],
+        ),
+        DropdownInput(
+            name="output_type",
+            display_name="Output Pydantic or a State Field",
+            info="Select the output type for this node. If you select Pydantic, the output will be a Pydantic model. "
+            "If you select State Field, you can assign the output "
+            "(single value) to a state field by manually typing the field name.",
+            options=["Pydantic", "State Field"],
+            value="Pydantic",
+            real_time_refresh=True,
+        ),
+        MessageTextInput(
+            name="output_state_field",
+            display_name="Output State Field",
+            info="If you choose 'State Field' as the output type, "
+            "enter the field name where the output should be stored. "
+            "If an output state model is defined for the node, "
+            "the field name must match one of its fields. By default, the graph's output state will be used.",
+            placeholder="Example: result",
+            show=False,
+            required=False,
+            dynamic=True,
         ),
         HandleInput(
             name="return_command_addon",
@@ -132,8 +133,8 @@ class GraphNodeForFunction(Component):
             display_name="Defer Node?",
             info="Deferring node execution is useful when you want to delay the execution of a node until all other "
             "pending tasks are completed. "
-            "This is particularly relevant when branches have different lengths, which is common in workflows "
-            "like map-reduce flows. "
+            "This is particularly relevant when branches have different lengths, "
+            "which is common in workflows like map-reduce flows. "
             "(https://langchain-ai.github.io/langgraph/how-tos/graph-api/#defer-node-execution)",
             advanced=True,
             value=False,
@@ -162,38 +163,28 @@ class GraphNodeForFunction(Component):
             is_list=True,
             dynamic=True,
             show=False,
-        )
+        ),
     ]
 
     outputs = [
-        Output(display_name="Function Node", name="next_node", method="build_graph")
+        Output(display_name="CrewAI Crew Node", name="next_node", method="build_graph")
     ]
-
-    def update_build_config(self, build_config, field_value, field_name = None):
-        if field_name == "use_mem":
-            if field_value:
-                build_config["get_from_mem_addon"]["show"] = True
-                build_config["put_to_mem_addon"]["show"] = True
-            else:
-                build_config["get_from_mem_addon"]["show"] = False
-                build_config["put_to_mem_addon"]["show"] = False
-        return build_config
 
     def _update_class_identity(self):
         """Update the class identity based on whether command addon is connected."""
         if hasattr(self, "return_command_addon") and self.return_command_addon:
             # Change the class name for detection by other components
-            self.__class__.__name__ = "GraphNodeForFunctionWithCommand"
-            self.name = "LangGraphNodeFunctionWithCommand"
-            self.display_name = "Graph Node For Function With Command"
+            self.__class__.__name__ = "GraphNodeForCrewAICrewWithCommand"
+            self.name = "LangGraphNodeForCrewAICrewWithCommand"
+            self.display_name = "Graph Node For CrewAI Crew With Command"
         else:
             # Reset to original class name
-            self.__class__.__name__ = "GraphNodeForFunction"
-            self.name = "LangGraphNodeFunction"
-            self.display_name = "Graph Node For Function"
-
+            self.__class__.__name__ = "GraphNodeForCrewAICrew"
+            self.name = "LangGraphNodeForCrewAICrew"
+            self.display_name = "Graph Node For CrewAI Crew"
 
     def _pre_run_setup(self):
+
         # Update class identity before setup
         self._update_class_identity()
 
@@ -223,16 +214,61 @@ class GraphNodeForFunction(Component):
         self.input_model = self.input_state.model_class
 
 
+    async def run_crew(self, state, _original_prompts, runtime) -> dict[str, Any]:
+        # Check for output state field if output type is State Field
+        if self.output_type == "State Field":
+            available_fields = [f["name"] for f in self.output_state.schema["fields"]]
+            if self.output_state_field not in available_fields:
+                msg = (f"Field '{self.output_state_field}' not found in output schema. "
+                       f"Available fields are: {available_fields}")
+                raise ValueError(msg)
+
+        agents, tasks = _original_prompts
+        mem_str = form_memory_str_for_prompt(self.memories) if self.memories else ""
+
+        for agent in agents:
+            role = agent.role
+            formatted_role = format_all_prompts(role, mem_str, runtime, state, self.node_name)
+            goal = agent.goal
+            formatted_goal = format_all_prompts(goal, mem_str, runtime, state, self.node_name)
+            backstory = agent.backstory
+            formatted_backstory = format_all_prompts(backstory, mem_str, runtime, state, self.node_name)
+            agent.role = formatted_role
+            agent.goal = formatted_goal
+            agent.backstory = formatted_backstory
+
+        for task in tasks:
+            description = task.description
+            formatted_description = format_all_prompts(description, mem_str, runtime, state, self.node_name)
+            expected_output = task.expected_output
+            formatted_expected_output = format_all_prompts(expected_output, mem_str, runtime, state, self.node_name)
+            task.description = formatted_description
+            task.expected_output = formatted_expected_output
+
+        result = await self.crew.kickoff_async()
+        print(f"Debug response from Agent: {result}")  # noqa: T201
+
+        if self.output_type == "Pydantic":
+            return clarify_result(result)
+        # Check the field type from the schema
+        is_list_field = check_if_field_is_list(self.output_state, self.output_state_field)
+        if is_list_field:
+            return {self.output_state_field: [result.raw]}
+        return {self.output_state_field: result.raw}
+
+
     # Add this node to builder
-    def build_graph(self) -> "GraphNodeForFunction":
+    def build_graph(self) -> "GraphNodeForCrewAICrew":
         # Get the shared builder from context
         builder = self.graph_builder
         if not builder:
-            msg = ("{self.node_name} | No StateGraph builder found in context. "
+            msg = ("No StateGraph builder found in context. "
                    "Make sure CreateStateGraph component is connected and executed first.")
             raise ValueError(msg)
 
         command_type_hint = self.return_command_addon.type_hint if self.return_command_addon else None
+
+        original_prompts = (self.crew.agents, self.crew.tasks)
 
         # Define node function with proper type hints
         async def node_function(  # noqa: D417
@@ -249,14 +285,12 @@ class GraphNodeForFunction(Component):
             Returns:
                 Output state according to the output_model schema
             """
-            # Run the function and get result
+            # Run the agent and get results
             try:
                 # Try to get memories
-                await extract_memory(self.get_from_mem_addon, self.memories, store, config)
+                self.memories = await extract_memory(self.get_from_mem_addon, self.memories, store, config)
                 # Get result
-                verbose_str = self.output_state.schema.get("verbose_schema_str")
-                mem_str = form_memory_str_for_prompt(self.memories) if self.memories else ""
-                result = await self.function_(state, self.output_state.get_field_types(), mem_str, verbose_str, runtime)
+                result = await self.run_crew(state, original_prompts, runtime)
                 # Store result as long memory
                 await store_memory(self.put_to_mem_addon, result, store, config)
                 # Return Command object if command_addon is provided
@@ -264,12 +298,14 @@ class GraphNodeForFunction(Component):
                     # Convert result to object to synchonize when using .field
                     if isinstance(result, dict):
                         result = self.output_model(**result)
+                    # No need for the elif case as it would be a no-op
                     result = self.return_command_addon.function_(result, state)
+                    print(f"Node {self.node_name} returning Command object: {result}")  # noqa: T201
                 else:
-                    pass
-            except Exception as e:
-                error_msg = f"{self.node_name} | Exception: {e}"
-                raise ValueError(error_msg) from e
+                    print(f"Node {self.node_name} returning regular result: {result}") # noqa: T201
+            except (ValueError, TypeError, KeyError, AttributeError, json.JSONDecodeError) as e:
+                msg = f"{self.node_name} | You may want to try another llm model to get the message | Exception: {e}"
+                raise ValueError(msg) from e
             return result
 
         params = build_params_for_add_node(self.node_caching, self.retry_policy, self.defer_node)
@@ -280,9 +316,24 @@ class GraphNodeForFunction(Component):
         print(f"Added node: {self.node_name}")  # noqa: T201
 
         # THEN detect and register edges (after node exists)
-        detect_and_register_edges(builder=builder, node_name=self.node_name, previous_nodes=self.previous_nodes)
+        self.graph_builder = detect_and_register_edges(builder, self.node_name, self.previous_nodes)
         return self
 
 
+    def update_build_config(self, build_config: dotdict, field_value: Any, field_name: str | None = None):
+        if field_name == "output_type":
+            if field_value == "Pydantic":
+                build_config["output_state_field"]["show"] = False
+                build_config["output_state_field"]["required"] = False
+            elif field_value == "State Field":
+                build_config["output_state_field"]["show"] = True
+                build_config["output_state_field"]["required"] = True
 
-
+        if field_name == "use_mem":
+            if field_value:
+                build_config["get_from_mem_addon"]["show"] = True
+                build_config["put_to_mem_addon"]["show"] = True
+            else:
+                build_config["get_from_mem_addon"]["show"] = False
+                build_config["put_to_mem_addon"]["show"] = False
+        return build_config

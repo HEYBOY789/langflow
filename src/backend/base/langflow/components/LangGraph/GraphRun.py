@@ -3,10 +3,12 @@ from typing import Union  # noqa: N999
 from langgraph.graph import END
 from langgraph.store.postgres.aio import AsyncPostgresStore
 from lfx.schema.data import Data
+from src.backend.base.langflow.components.LangGraph.utils.graph_node_func import detect_and_register_edges
+from src.backend.base.langflow.components.LangGraph.utils.input_convert_func import normalize_input_data
 
 from langflow.custom import Component
 from langflow.io import BoolInput, DictInput, DropdownInput, HandleInput, IntInput, MessageTextInput, Output
-from src.backend.base.langflow.components.langflow.utils.input_convert_func import normalize_input_data
+
 
 class AsyncStoreManager:
     _instance = None
@@ -118,7 +120,6 @@ class GraphRun(Component):
             "• For simple types like strings, integers, and floats, just input the value directly\n."
             'Examples: "Hello", 1, 1.0\n\n'
             "Note: Use double quotes for strings and dict keys",
-            required=True,
             is_list=True,
             value={"example": '@is_class Birthday{"date": 2, "month": 12, "year": 1994} as birthday || "'
             '"@is_class Person{"name": "Lan", "age": 20, "birthday": birthday} as person || @is_list [person]'},
@@ -153,7 +154,6 @@ class GraphRun(Component):
             "• For simple types like strings, integers, and floats, just input the value directly\n."
             'Examples: "Hello", 1, 1.0\n\n'
             "Note: Use double quotes for strings and dict keys",
-            required=False,
             dynamic=True,
             show=False,
         ),
@@ -271,14 +271,10 @@ class GraphRun(Component):
         if field_name == "input_type":
             if field_value == "Dictionary":
                 build_config["input_dict"]["show"] = True
-                build_config["input_dict"]["required"] = True
                 build_config["input_data_type"]["show"] = False
-                build_config["input_data_type"]["required"] = False
             if field_value == "Data Type":
                 build_config["input_dict"]["show"] = False
-                build_config["input_dict"]["required"] = False
                 build_config["input_data_type"]["show"] = True
-                build_config["input_data_type"]["required"] = True
 
         if field_name == "input_type_runtime":
             if field_value == "Dictionary":
@@ -354,36 +350,6 @@ class GraphRun(Component):
         else:
             self.mem_store_index = None
 
-    def _add_end_edges(self):
-        """Add edges from final nodes to END."""
-        builder = self.graph_builder
-        if not builder:
-            msg = "No StateGraph builder found in context."
-            raise ValueError(msg)
-
-        # Add END edges from final nodes
-        for final_node_component in self.final_nodes:
-            # If final_node is conditonal edge, just pass because all the logic is handled in
-            # ConditionalEdgeForLangGraph
-            if final_node_component.__class__.__name__ == "ConditionalEdgeForLangGraph":
-                print(f"Skipping ConditionalEdgeForLangGraph: {final_node_component.conditional_edge_name}")  # noqa: T201
-                continue
-
-            if final_node_component.__class__.__name__ in [
-                "AddEdgeToLoopNodeForLangGraph",
-                "GraphNodeForAgentWithCommand",
-                "GraphNodeForCrewAIAgentWithCommand",
-                "GraphNodeForCrewAICrewWithCommand",
-                "GraphNodeForFunctionWithCommand",
-                "GraphNodeAsSubGraphWithCommand"
-            ]:
-                print(f"Skipping {final_node_component.__class__.__name__}")  # noqa: T201
-                continue
-
-            node_name = final_node_component.node_name
-            builder.add_edge(node_name, END)
-            print(f"Added END edge: {node_name} -> END")  # noqa: T201
-
 
     async def build_graph(self) -> "GraphRun":
         """Build the complete StateGraph with all nodes and edges."""
@@ -392,7 +358,7 @@ class GraphRun(Component):
             msg = "No StateGraph builder found in context."
             raise ValueError(msg)
 
-        self._add_end_edges()
+        detect_and_register_edges(builder, END, self.final_nodes)
 
         if self.node_caching:
             from langgraph.cache.memory import InMemoryCache
@@ -427,7 +393,7 @@ class GraphRun(Component):
         """Helper method to execute the graph asynchronously."""
         try:
             self.serialize_input()
-            normalize_input_data(self.input_data, parent_state=self.parent_state)
+            self.input_data = normalize_input_data(self.input_data, parent_state=self.parent_state)
             result = await self._graph.ainvoke(
                 input=self.input_data,
                 config=self.config,
@@ -446,7 +412,7 @@ class GraphRun(Component):
     async def _execute_graph_async_subgraph(self):
         try:
             self.serialize_input()
-            normalize_input_data(self.input_data, parent_state=self.parent_state)
+            self.input_data = normalize_input_data(self.input_data, parent_state=self.parent_state)
             result = await self._graph.ainvoke(
                 input=self.input_data,
                 config=self.config,

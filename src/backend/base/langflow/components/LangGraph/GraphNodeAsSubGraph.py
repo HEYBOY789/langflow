@@ -1,6 +1,6 @@
 from typing import Any  # noqa: N999
 
-from src.backend.base.langflow.components.langflow.utils.graph_node_func import (
+from src.backend.base.langflow.components.LangGraph.utils.graph_node_func import (
     build_params_for_add_node,
     detect_and_register_edges,
 )
@@ -248,5 +248,5 @@ class GraphNodeAsSubGraph(Component):
         print(f"Added node: {self.node_name}")  # noqa: T201
 
         # THEN detect and register edges (after node exists)
-        detect_and_register_edges(builder, self.node_name, self.previous_nodes)
+        self.graph_builder = detect_and_register_edges(builder, self.node_name, self.previous_nodes)
         return self
