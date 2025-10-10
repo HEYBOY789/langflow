@@ -73,14 +73,27 @@ Hien gio chi co 1 graph invoke, nhung truoc tine phai kiem cach chay invoke dc c
 
 11. chinh lai format_prompt co the chap nhan {var.field} cho class va dict luon , ket hop  Xem xet thay the nesteddictinput cho inputdata cua graphrun va cac compo tuong tu. Xet duyet tren string. vi du ["@is_class Person(nam=john)", "@is_class Person(nam=tom)"] => Quyet dinh de nguyen he thong inputdata bang chu => xong
 
-xem xet gop cac function bi phan manh o nhieu cho thanh ulti, 4 graphnode implement tu 1 graphnode chinh => khong lam duoc. langflow khong nhan
+xem xet gop cac function bi phan manh o nhieu cho thanh ulti, 4 graphnode implement tu 1 graphnode chinh => chi lam duoc ulti, khong the inherit tu mot base node => da lam luon ulti
 
-9. Functional API => Tham khao de biet cach xai Functionnal API voi graph de implement them langmem
+9. Human in the loop => ko lam dc do gioi han ve ky thuat cua langflow
 
-8. Defer Background memory
+9. lam lai tat cac cac vi du ve cac flow truoc roi toi function api
+
+9. Functional API => Tham khao de biet cach xai Functionnal API voi graph de implement them langmem => tam thoi khong can xai. implement dc langmem luon roi
+
+10. Crawl4AI => Phai tao them o GraphNodeForFunction cho chuc nang nhan duoc ketqua dau ra cua cac component khac va su dung gia tri do trong function
 
 
-9. Human in the loop
+11.  RAG-Anything
+
+12. memvid
+
+10. implement stagehand agent https://docs.stagehand.dev/basics/extract
+
+
+
+
+
 
 
 

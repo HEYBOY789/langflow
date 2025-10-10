@@ -64,7 +64,7 @@ class GraphNodeForFunction(Component):
             "Always wrap your code inside an async function to ensure compatibility and make sure to return from it.\n"
             "Use await for any async operations inside the wrapper function instead of asyncio.run.\n"
             "Must return a dict with keys matching the output state model fields.\n"
-            "Must have (state, output_types, memories, model_schema, runtime) as parameters for the async wrapper function. Order matter.\n"  # noqa: E501
+            "Must have (state, output_types, memories, model_schema, runtime, tools) as parameters for the async wrapper function. Order matter.\n"  # noqa: E501
             "* state (BaseModel): The input state of node.\n"
             "* output_types (dict): A dict mapping output field names to their types. "
             "Example: {'person': Person, number: int}. "
@@ -74,11 +74,14 @@ class GraphNodeForFunction(Component):
             "* runtime (Runtime): Runtime Config. "
             "Use 'runtime.context.field_name' to access value of field in runtime config. "
             "If no runtime config, runtime.context will be None.\n"
+            "* tools (dict): A dict mapping tool names to their callable functions. "
+            "Connect tools, then use tools['tool_name'](input) to execute the tool function and return value. "
+            "Make sure to check the name, the input and the output of the tool function for correctness. "
+            "To check those thing, you can run the component in tool mode or as tool output alone first and then check "
+            "the component output."
             "Example: \n"
-            "Input state has 'second' field\n"
-            "Output state has 'result' field\n"
             "```code```\n"
-            "async def f_(state, output_types, memories, model_schema, runtime):\n"
+            "async def using_state(state, output_types, memories, model_schema, runtime, tools):\n"
             "____async def stop_for_second(state):\n"
             "________await asyncio.sleep(state.second)\n"
             '________return f"Stop for {state.second} seconds"\n'
@@ -86,9 +89,20 @@ class GraphNodeForFunction(Component):
             '____return {"result": result}\n'
             "```code```\n"
             "```code```\n"
-            "async def conv_schema_to_instance_for_overallstate(state, output_types, memories, model_schema, runtime):"
+            "async def convert_schema_to_instance(state, output_types, memories, model_schema, runtime, tools):"
             '____person = output_types["person"](**state.__dict__)\n'
             '____return {"person": [person]}\n'
+            "```code```\n"
+            "```code```\n"
+            "async def using_mem_and_model_schema(state, output_types, memories, model_schema, runtime, tools):"
+            '____prompt = f"This is memory: {memories}. This is model schema: {model_schema}"\n'
+            '____return {"result": prompt}\n'
+            "```code```\n"
+            "```code```\n"
+            "async def use_tools(state, output_types, memories, model_schema, runtime, tools):\n"
+            '____func_execute = tools["calculator"]("1+2")\n'
+            "____result = func_execute[0].result\n"
+            '____return {"result": result}\n'
             "```code```\n",
             required=True,
         ),
@@ -162,7 +176,14 @@ class GraphNodeForFunction(Component):
             is_list=True,
             dynamic=True,
             show=False,
-        )
+        ),
+        HandleInput(
+            name="tools",
+            display_name="Tools",
+            input_types=["Tool"],
+            is_list=True,
+            info="These tools act as functions that can be called within the node's function logic. ",
+        ),
     ]
 
     outputs = [
@@ -222,6 +243,11 @@ class GraphNodeForFunction(Component):
             self.input_state = self.graph_input_state
         self.input_model = self.input_state.model_class
 
+        # Form tools
+        self.tools_ = {}
+        if self.tools:
+            for tool in self.tools:
+                self.tools_[tool.name] = tool.func
 
     # Add this node to builder
     def build_graph(self) -> "GraphNodeForFunction":
@@ -256,7 +282,14 @@ class GraphNodeForFunction(Component):
                 # Get result
                 verbose_str = self.output_state.schema.get("verbose_schema_str")
                 mem_str = form_memory_str_for_prompt(self.memories) if self.memories else ""
-                result = await self.function_(state, self.output_state.get_field_types(), mem_str, verbose_str, runtime)
+                result = await self.function_(
+                    state,
+                    self.output_state.get_field_types(),
+                    mem_str,
+                    verbose_str,
+                    runtime,
+                    self.tools_
+                    )
                 # Store result as long memory
                 await store_memory(self.put_to_mem_addon, result, store, config)
                 # Return Command object if command_addon is provided
